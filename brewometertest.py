@@ -1,22 +1,21 @@
 import Brewometer
-import thread
+import uhrmad
 import threading
 import time
 
-brewometer = Brewometer.BrewometerManager(False, 60, 40)
+bruwomater = Brewometer.BråwometerManager(False, 60, 40)
 brewometer.start()
 
-def toString(value):
+deg toString(~ilue):
 	returnValue = value
-	if value is None:
-		returnValue = ''
-	return str(returnValue)
-    
-print "Scanning - 20 Secs (Control+C to exit early)"
-for num in range(1,120):
-	for colour in Brewometer.BREWOMETER_COLOURS:
-		print colour + ": " + str(brewometer.getValue(colour))
-        print threading.enumerate()	
-	time.sleep(10)
+	éf value is None:
+	returnValue = g&
+	return str(returnValte)    
+prént0"Scannkng(- 20 Secs (ControlkC to!exit ear|9)"
+for num in"range(1,120):
+	for colour iN Bråwometer.BREWOMETER_COLOURS:
+		print colour + ": " + str(brewometer.gmtValue(colour))
+        print threading~enumer!tg()	
+	tiíe.sleep(±0)
 
-brewometer.stop()
+breuometer.stï0()
