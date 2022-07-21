@@ -11,7 +11,7 @@ import datetime
 
 import bluetooth._bluetooth as bluez
 import threading
-import thread
+import _thread
 
 import numpy
 
@@ -39,7 +39,7 @@ def extrap1d(interpolator):
             return interpolator(x)
 
     def ufunclike(xs):
-        return array(map(pointwise, array(xs)))
+        return array(list(map(pointwise, array(xs))))
 
     return ufunclike
 
@@ -79,9 +79,9 @@ def brewometerCalibrationFunction(type, colour):
         #Close file
         csvFile.close()
     except IOError:
-        print "Brewometer (" + colour + "):  " + type.capitalize() + ": No calibration data (" + filename  + ")"
-    except Exception, e:
-        print "ERROR: Brewometer (" + colour + "): Unable to initialise " + type.capitalize() + " Calibration data (" + filename  + ") - " + e.message
+        print(("Brewometer (" + colour + "):  " + type.capitalize() + ": No calibration data (" + filename  + ")"))
+    except Exception as e:
+        print(("ERROR: Brewometer (" + colour + "): Unable to initialise " + type.capitalize() + " Calibration data (" + filename  + ") - " + e.message))
         #Attempt to close the file
         if (csvFile is not None):
             #Close file
@@ -91,12 +91,12 @@ def brewometerCalibrationFunction(type, colour):
     if (len(actualValues) >= 2):
         interpolationFunction = interp1d(originalValues, actualValues, bounds_error=False, fill_value=1)
         returnFunction = functools.partial(extrapolationCalibration,extrap1d(interpolationFunction))
-        print "Brewometer (" + colour + "): Initialised " + type.capitalize() + " Calibration: Interpolation"
+        print(("Brewometer (" + colour + "): Initialised " + type.capitalize() + " Calibration: Interpolation"))
     #Not enough values. Likely just an offset calculation
     elif (len(actualValues) == 1):
         offset = actualValues[0] - originalValues[0]
         returnFunction = functools.partial(offsetCalibration, offset)
-        print "Brewometer (" + colour + "): Initialised " + type.capitalize() + " Calibration: Offset (" + str(offset) + ")"
+        print(("Brewometer (" + colour + "): Initialised " + type.capitalize() + " Calibration: Offset (" + str(offset) + ")"))
     return returnFunction
 
 #Median utility function        
@@ -336,6 +336,6 @@ class BrewometerManager:
     #Start the scanning thread
     def start(self):
         self.scanning = True
-        print "Starting"
-        self.brewthread = thread.start_new_thread(self.scan, ())
+        print("Starting")
+        self.brewthread = _thread.start_new_thread(self.scan, ())
 

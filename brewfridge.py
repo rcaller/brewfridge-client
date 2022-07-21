@@ -1,34 +1,31 @@
 #!/usr/bin/python
 
 import json
-import urllib2
+
 import time
 import os
 import glob
 import sys
-import thread
 import threading
 import logging
 import logging.handlers
 import targetTemp
 import wiringpi
 import sqlite3
-from daemon import runner
+import daemon
+import configparser
 from subprocess import check_output
 from fridge import Fridge
 from pid import Pid
-import Brewometer
-from BaseHTTPServer import HTTPServer
-from brewFridgeEventsRequestHandler import BrewFridgeEventsRequestHandler
-
+import TiltHydrometer
+import urllib
+from http.server import HTTPServer
 wiringpi.wiringPiSetup()
 os.system('modprobe w1-gpio')
 os.system('modprobe w1-therm')
  
 base_dir = '/sys/bus/w1/devices/'
-device_files = {'4bfe': '/sys/bus/w1/devices/28-000006c54bfe/w1_slave',
-                '6df9': '/sys/bus/w1/devices/28-000006c56df9/w1_slave',
-                'thermowell': '/sys/bus/w1/devices/28-041659025bff/w1_slave'};
+device_files = {};
 
 
 def read_temp_raw(deviceFile):
@@ -37,7 +34,7 @@ def read_temp_raw(deviceFile):
       lines = f.readlines()
       f.close()
     except:
-      logger.error("Probem accessing temperature sensor")
+      logger.error("Probem accessing temperature sensor ")
     return lines
 
 def read_temp(device):
@@ -61,102 +58,100 @@ class BrewFridge():
         self.stderr_path = '/dev/null'
         self.pidfile_path =  '/tmp/foo.pid'
         self.pidfile_timeout = 5
-        self.targetTemp = targetTemp.targetTemp("http://www.tertiarybrewery.co.uk/brewfridge/tempdata/target")
+        parser = configparser.ConfigParser()
+        parser.read("brewConfig.txt")
+        self.name =  parser.get("controller", "name")
+        self.baseUrl = parser.get("controller", "baseUrl")
+        self.apiKey = parser.get("controller", "apiKey")
+        self.targetTemp = targetTemp.targetTemp(self.baseUrl, self.apiKey)
         self.target=20
-        self.fridge = Fridge(8,9, 0.25)
+        heatPin = int(parser.get("tempController", "heatPin"))
+        heatDelay  = int(parser.get("tempController", "heatDelay"))
+        coolPin = int(parser.get("tempController", "coolPin"))
+        coolDelay =  int(parser.get("tempController", "coolDelay"))
+        threshold =  float(parser.get("tempController", "threshold"))
+        p = float(parser.get("pid", "proportional"))
+        i =  float(parser.get("pid", "integral"))
+        d =  float(parser.get("pid", "differential"))
+        window = int(parser.get("pid", "window"))
+        self.fridge = Fridge(heatPin,coolPin,threshold, heatDelay, coolDelay)
         self.fridge.addLogger(logger)
-        self.pid = Pid(2,6,-1,60)
+        self.pid = Pid(p, i, d, window)
         self.pid.addLogger(logger)
+        for dev, id in parser.items("tempSensors"):
+          logger.info(dev)
+          device_files[dev] = (base_dir + id + "/w1_slave")
         logger.info("Setup complete")
 
-    def __db_connect(self):
-      return sqlite3.connect('brewFridge.measurement_events')
-
-    def event_store_setup(self):
-      logger.info("Creating table")
-      conn = self.__db_connect()
-      c = conn.cursor()
-      c.execute('''PRAGMA journal_mode = OFF''')
-      c.execute('CREATE TABLE IF NOT EXISTS tempMeasurementTaken (tempMeasurementId INTEGER PRIMARY KEY, fridgeTemp float, beerTemp float, internalTemp float, gravity float, time timestamp);')
-      conn.commit()
-      conn.close()
 
     def update_target_temp(self):
        try:
          logger.info("Getting Target")
-         target = self.targetTemp.getTargetTemp()
+         target = self.targetTemp.getTargetTemp(self.fermentId, self.profileId)
          self.target = target
          logger.info("target: "+str(target))
-       except:
-         logger.error("Error getting temperature")
+       except BaseException as err:
+         logger.error("Error getting temperature "+str(err))
 
-    def publish_measurement_event(self, fridge, beer, internal, gravity):
-      logger.info("Publishing event")
+    def init_ferment_details(self):
+      req = urllib.request.Request(self.baseUrl+"fermenters?fermenterName="+self.name)
+      req.add_header('x-api-key', self.apiKey)
+      r = json.loads(urllib.request.urlopen(req).read())
+      self.fermentId = r["Item"]["fermentId"]
+      self.profileId = r["Item"]["profileId"]
+
+    def report_data(self, data):
+      req = urllib.request.Request(self.baseUrl+"fermentationReport?fermentId="+str(self.fermentId))
+      req.add_header('Content-Type', 'application/json')
+      req.add_header('x-api-key', self.apiKey)
+      logger.info("Reporting Temps - ")
       try:
-        conn = self.__db_connect()
-        c = conn.cursor()
-        c.execute('INSERT INTO tempMeasurementTaken (fridgeTemp, beerTemp, internalTemp, gravity, time) VALUES (?, ?, ?, ?, datetime("now"))', (fridge, beer, internal, gravity))
-        conn.commit()
-        conn.close()
-      except:
-        logger.error("Unexpected error:")
-        logger.error(sys.exc_info()[0])
-        logger.error(sys.exc_info()[1])
-        logger.error(sys.exc_info()[2])
+        reportData =  json.dumps({"fermentId": self.fermentId}|data)
+        logger.info(reportData)
+        response = urllib.request.urlopen(req, reportData.encode('utf-8'))
+        logger.info(response)
+      except BaseException as e:
+        logger.error("Write failure: "+str(e))
  
 
     def run(self):
+        logger.info("Getting fermentation id")
+        self.init_ferment_details()
+
         logger.info("Start Main Loop")
-        self.event_store_setup()
-        brewometer = Brewometer.BrewometerManager(False, 60, 40)
+        brewometer = TiltHydrometer.TiltHydrometerManager(False, 60, 40)
         brewometer.addLogger(logger)
         brewometer.start()
-        try: 
-          t = threading.Thread(target=self.eventServer)
-          #t.daemon=True
-          t.start()
-        except:
-          logger.error("Unexpected error:", sys.exc_info()[0])
         while True:
-	  self.update_target_temp()
-
-          brewometerData = brewometer.getValue('Yellow')
+          self.update_target_temp()
+          data = {}
+          brewometerData = brewometer.getValue('Pink')
           logger.info("Brewometer: "+str(brewometerData));
           brewometerTemp = None
           brewometerGravity = None
           if (brewometerData):
-	    brewometerTemp = brewometerData.temperature;
-            brewometerGravity = brewometerData.gravity;
+            data["tilt"] = brewometerData.temperature;
+            data["gravity"] = brewometerData.gravity;
           logger.info("Reading temps")
-          temp_6df9 = read_temp('6df9')
-          logger.info("Beer:" + str(temp_6df9))
-          temp_thermowell = read_temp('thermowell')
-          logger.info("TW:" + str(temp_thermowell))
-          pid_target = self.target + self.pid.control(temp_6df9, self.target)
-          if (pid_target < 1):
-            pid_target = 1
+
+          logger.info(device_files)
+          for dev in device_files:
+            data[dev] = read_temp(dev)
+            logger.info(dev + ":" + str(data[dev]))
+          
+          pid_target = self.target + self.pid.control(data["beer"], self.target)
+          data['target'] = pid_target
+          self.report_data(data) 
+          #if (pid_target < 1):
+          #  pid_target = 1
           logger.info("PID target:" + str(pid_target))
           for loopCount in range(0,5):
             logger.info("loop")
-            temp_4bfe = read_temp('4bfe')
-            self.fridge.control(pid_target,  temp_4bfe) 
+            controlTemp = read_temp('control')
+            self.fridge.control(pid_target,  controlTemp) 
             time.sleep(10)
 
-          req = urllib2.Request('http://www.tertiarybrewery.co.uk/brewfridge/tempreport')
-          req.add_header('Content-Type', 'application/json')
-          logger.info("Reporting Temps")
-          try:
-            response = urllib2.urlopen(req, json.dumps({'fridge': temp_4bfe, 'beer': temp_6df9, 'internal': brewometerTemp, 'thermowell': temp_thermowell, 'gravity': brewometerGravity}))
-          except:
-            logger.error("Write failure")
 
-	  self.publish_measurement_event(temp_4bfe, temp_6df9, brewometerTemp, brewometerGravity)
-        logger.info("loop2")
-
-    def eventServer(self):
-      server = HTTPServer(('', 8080), BrewFridgeEventsRequestHandler)
-      #Wait forever for incoming htto requests
-      server.serve_forever()
 
 logger = logging.getLogger("DaemonLog")
 logger.setLevel(logging.INFO)
@@ -164,12 +159,9 @@ formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(messag
 handler = logging.handlers.WatchedFileHandler("/var/log/brewfridge.log")
 handler.setFormatter(formatter)
 logger.addHandler(handler)
-
-
-brewFridge = BrewFridge()
-daemon= runner.DaemonRunner(brewFridge)
-#This ensures that the logger file handle does not get closed during daemonization
-daemon.daemon_context.files_preserve=[handler.stream]
-daemon.daemon_context.working_directory=os.getcwd()
 logger.info("Starting Daelmon")
-daemon.do_action()
+dc = daemon.DaemonContext()
+dc.files_preserve=[handler.stream]
+dc.working_directory=os.getcwd()
+with dc:
+  BrewFridge().run()

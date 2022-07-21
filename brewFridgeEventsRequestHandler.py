@@ -1,8 +1,8 @@
 #!/usr/bin/python
-from BaseHTTPServer import BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler
 from feedgen.feed import FeedGenerator
 import sqlite3
-import jsondate as json
+import json
 import datetime
 from pytz import timezone
 

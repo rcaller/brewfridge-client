@@ -1,0 +1,18 @@
+[controller]
+    name: Conical
+    baseUrl: http://www.tertiarybrewery.co.uk/fermentation/
+    apiKey: oGcQ2Lu5rT72IZMI7Y8KO4iIONLk9IIl9qfWHSp0 
+[tempSensors]
+    beer: 28-041658c75cff
+    control: 28-01202703cab2
+[tempController]
+    heatPin: 16
+    coolPin: 15
+    threshold: 1
+    coolDelay: 0
+    heatDelay: 0
+[pid]
+    proportional: 40
+    integral: 40
+    differential: -1
+    window: 60

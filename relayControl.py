@@ -12,7 +12,7 @@ class RelayControl:
     self.turnedOn = False
     self.lastSwitchTime=time.time()
     wiringpi.pinMode(self.relay, 1)
-    wiringpi.digitalWrite(self.relay, 1)
+    wiringpi.digitalWrite(self.relay, 0)
 
     logger = logging.getLogger("DaemonLog")
     logger.setLevel(logging.INFO)
@@ -28,8 +28,9 @@ class RelayControl:
   def on(self):
     if (not(self.turnedOn)):
       if (self.checkCycleTime()):
+        self.logger.info('Setting High '+str(self.relay))
         wiringpi.pinMode(self.relay, 1)
-        wiringpi.digitalWrite(self.relay, 0)
+        wiringpi.digitalWrite(self.relay, 1)
         self.turnedOn = True
         self.setSwitchTime()
       else:
@@ -38,8 +39,9 @@ class RelayControl:
 
   def off(self):
     if (self.turnedOn):
+      self.logger.info('Setting Low '+str(self.relay))
       wiringpi.pinMode(self.relay, 1)
-      wiringpi.digitalWrite(self.relay, 1)
+      wiringpi.digitalWrite(self.relay, 0)
       self.turnedOn = False
       self.setSwitchTime()
 

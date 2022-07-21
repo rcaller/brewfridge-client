@@ -4,11 +4,12 @@ import sys
 
 class Fridge:
   """temp controlled fridge"""
-  def __init__(self, heatRelay, coolRelay, tempDelta):
+  def __init__(self, heatRelay, coolRelay, tempDelta, heatDelay, coolDelay):
     self.heatRelay = RelayControl(heatRelay)
     self.coolRelay = RelayControl(coolRelay)
     self.tempDelta = tempDelta
-    self.coolRelay.setMinimumCycleTime(300)
+    self.coolRelay.setMinimumCycleTime(coolDelay)
+    self.heatRelay.setMinimumCycleTime(heatDelay)
     logger = logging.getLogger("DaemonLog")
     logger.setLevel(logging.INFO)
     formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
